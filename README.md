@@ -8,7 +8,8 @@ A PySide6 GUI utility for Linux (KDE Wayland & X11) designed to randomly shuffle
 ## Key Features
 
 - **Multi-Backend Support:** Native window management handling via `wmctrl` (X11 / Xwayland) and KWin DBus scripting (KDE Wayland).
-- **Window-Aware Filtering:** Detects running emulators while automatically filtering out generic shell wrappers (`bash`), sandboxes (`bwrap`), and launcher scripts.
+- **Background Freeze (SIGSTOP):** Unfocused emulators are suspended, not just minimized, so games keep their state instead of playing on in the background. This covers emulators with no "pause when unfocused" option of their own, such as Cemu, and works through Flatpak wrapper trees (`bwrap` -> `Cemu-wrapper` -> `cemu`). Every exit path thaws what it froze.
+- **Window-Aware Filtering:** Detects running emulators while automatically filtering out generic shell wrappers (`bash`), sandboxes (`bwrap`), and launcher scripts. Emulators are identified by process name and binary rather than by their full command line, so a process that merely mentions an emulator in an argument (a KDE `kioworker` carrying the requesting app's socket name, or a ROM path) is not mistaken for one. Detection does not rely on `wmctrl` alone, which reports only X11/Xwayland windows: a process is also recognized as an emulator if it links a display-client library, which is what makes native Wayland clients such as Flatpak Cemu visible.
 - **Specialized Emulator Handling:** Includes fallback title/class matching for emulators like Rosalie's Mupen GUI (RMG) that spawn isolated process trees or report PID 0 under Xwayland/KWin.
 - **Global Hotkeys:** Press `Delete` anywhere to instantly drop the active emulator process from rotation and switch targets immediately.
 - **Debounce Lock Protection:** Built-in key-repeat debounce protection prevents rapid signal spam from clearing your active pool on a single keypress.
@@ -83,5 +84,9 @@ sudo apt install wmctrl
 
 ## Troubleshooting
 
+- **Brief audio buzz when a game is shuffled away:** Suspending a process can leave the last audio buffer looping for a few milliseconds before PipeWire drains it. This is cosmetic and does not affect emulation state.
+- **An emulator looks hung after a crash:** If the shuffler is killed with `SIGKILL` it cannot thaw its targets. Run `kill -CONT <pid>` to resume one by hand. Normal exits, including closing the window and stopping the shuffler, always resume every process.
+- **An unrelated process appears in the list:** Matching is on the process's own name and binary, with its arguments consulted only for interpreters (`mono`, `python`, shells) that are named after themselves rather than after what they run. If something unrelated still appears, add its binary name to `excluded_binaries`, which matches exactly. KDE's `dolphin` file manager is excluded there by default so it is not confused with the Dolphin emulator (`dolphin-emu`).
+- **A Flatpak emulator does not appear in the list:** The list shows the process that actually links a display library, which for a Flatpak is the emulator itself rather than its `bwrap` or `*-wrapper` parents. If nothing appears, confirm the emulator's window is open before clicking **Refresh Emulator List**, and check that its binary name matches one of the keywords in `emulator_keywords`.
 - **RMG or Flatpak emulators not focusing on Wayland:** Ensure your desktop environment allows global keyboard hooks for `pynput` and DBus scripting calls to KWin (`org.kde.KWin`).
 - **Global hotkeys not responding:** Verify your terminal or desktop session has appropriate permissions to capture global keypress events.

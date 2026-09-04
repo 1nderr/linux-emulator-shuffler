@@ -1,5 +1,6 @@
 import sys
 import os
+import atexit
 import subprocess
 import random
 import time
@@ -22,7 +23,7 @@ class HotkeyEmitter(QObject):
 class LinuxGameShuffler(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Linux Emulator Shuffler (Wayland & X11)")
+        self.setWindowTitle("Linux Emulator Shuffler")
         self.resize(750, 520)
 
         self.selected_pids: List[int] = []
@@ -30,6 +31,12 @@ class LinuxGameShuffler(QMainWindow):
         self.is_running: bool = False
         self.backend: str = "unknown"
         self.last_remove_time: float = 0.0  # Debounce timestamp
+
+        # Emulators without a "pause when unfocused" option (Cemu) keep playing in
+        # the background, so unfocused targets are frozen with SIGSTOP instead.
+        self.suspended_pids: Set[int] = set()
+        self.suspend_delay_ms: int = 250  # Let the compositor minimize before freezing
+        atexit.register(self.resume_all)
 
         # Keywords for emulator identification
         self.emulator_keywords: Set[str] = {
@@ -41,9 +48,22 @@ class LinuxGameShuffler(QMainWindow):
             "retroarch", "bizhawk", "pico8", "blastem", "flycast"
         }
 
-        # Binaries to ignore UNLESS they explicitly match an emulator target
+        # A process linking one of these is a real display client, not a wrapper.
+        self.display_libraries: Tuple[str, ...] = (
+            "libwayland-client", "libX11.so", "libxcb.so"
+        )
+
+        # Desktop applications whose binary name collides with a keyword. Matched
+        # exactly, so the Dolphin emulator (dolphin-emu, Dolphin_Emulator-*.AppImage)
+        # is still detected while KDE's file manager is not.
+        self.excluded_binaries: Set[str] = {"dolphin"}
+
+        # Binaries named after themselves rather than after what they run. They are
+        # ignored unless their arguments name an emulator, and they are the only
+        # processes whose command line is worth scanning for one.
         self.wrapper_binaries: Set[str] = {
-            "bash", "sh", "zsh", "systemd", "env", "python", "python3"
+            "bash", "sh", "zsh", "systemd", "env", "python", "python3",
+            "mono", "java", "wine", "wine64", "dotnet"
         }
 
         self.shuffle_timer: QTimer = QTimer(self)
@@ -83,12 +103,12 @@ class LinuxGameShuffler(QMainWindow):
         self.min_label: QLabel = QLabel("Min Sec:")
         self.min_spin: QSpinBox = QSpinBox()
         self.min_spin.setRange(1, 3600)
-        self.min_spin.setValue(10)
+        self.min_spin.setValue(2)
 
         self.max_label: QLabel = QLabel("Max Sec:")
         self.max_spin: QSpinBox = QSpinBox()
         self.max_spin.setRange(1, 3600)
-        self.max_spin.setValue(30)
+        self.max_spin.setValue(20)
 
         self.refresh_btn: QPushButton = QPushButton("Refresh Emulator List")
         self.refresh_btn.clicked.connect(self.refresh_process_list)
@@ -126,10 +146,29 @@ class LinuxGameShuffler(QMainWindow):
         main_layout.addWidget(help_label)
 
     def is_emulator_process(self, proc_name: str, exec_base: str, cmd_str: str, exe_path: str) -> bool:
-        target_str: str = f"{proc_name} {exec_base} {cmd_str} {exe_path}".lower()
+        """Match on what a process *is*, not on every path it happens to mention.
+
+        Scanning the whole command line treats any process that merely names an
+        emulator in an argument as an emulator: a KIO worker carries the
+        requesting application's name in its socket argument, and a ROM path
+        carries the console's name.
+        """
+        if proc_name.lower() in self.excluded_binaries or exec_base in self.excluded_binaries:
+            return False
+
+        identity: str = f"{proc_name} {exec_base} {os.path.basename(exe_path)}".lower()
         for kw in self.emulator_keywords:
-            if kw in target_str:
+            if kw in identity:
                 return True
+
+        # An interpreter is named after itself, so the emulator it was asked to
+        # run can only be identified from its arguments (mono BizHawk/EmuHawk.exe).
+        if exec_base in self.wrapper_binaries or proc_name.lower() in self.wrapper_binaries:
+            cmd_lower: str = cmd_str.lower()
+            for kw in self.emulator_keywords:
+                if kw in cmd_lower:
+                    return True
+
         return False
 
     def get_window_pids(self) -> Set[int]:
@@ -148,6 +187,43 @@ class LinuxGameShuffler(QMainWindow):
             pass
 
         return window_pids
+
+    def is_gui_process(self, pid: int) -> bool:
+        """Does this PID link a display-client library?
+
+        wmctrl reports only X11/Xwayland windows, so on Wayland it cannot see
+        native clients such as Flatpak Cemu. A mapped display library identifies
+        real GUI processes on either display server, and rejects the wrappers
+        (bwrap, Cemu-wrapper) that surround a Flatpak emulator.
+        """
+        try:
+            with open(f"/proc/{pid}/maps", "r") as f:
+                mapped: str = f.read()
+        except OSError:
+            return True  # Unreadable: show the process rather than hide it
+
+        return any(lib in mapped for lib in self.display_libraries)
+
+    def collapse_helper_processes(self, candidates: Dict[int, Tuple[str, str]]) -> Dict[int, Tuple[str, str]]:
+        """Drop candidates that descend from another candidate.
+
+        Multi-process emulators would otherwise list one row per helper. The
+        top-most process is also the correct shuffle target, since suspending
+        its tree freezes the helpers along with it.
+        """
+        kept: Dict[int, Tuple[str, str]] = {}
+
+        for pid, info in candidates.items():
+            try:
+                ancestors: Set[int] = {parent.pid for parent in psutil.Process(pid).parents()}
+            except psutil.Error:
+                ancestors = set()
+
+            if ancestors & candidates.keys():
+                continue
+            kept[pid] = info
+
+        return kept
 
     def get_emulators(self) -> Dict[int, Tuple[str, str]]:
         processes: Dict[int, Tuple[str, str]] = {}
@@ -176,7 +252,10 @@ class LinuxGameShuffler(QMainWindow):
                     # Special check for RMG / Flatpak / AppImage processes where window PID may be 0
                     is_rmg = "rmg" in proc_name_lower or "rmg" in exec_base or "rosalie" in cmd_str.lower()
                     
-                    if window_pids and pid not in window_pids and not is_rmg:
+                    # Keep a process if the display server reports a window for
+                    # it, or if it links a display library. The second test is
+                    # what finds native Wayland clients wmctrl cannot enumerate.
+                    if pid not in window_pids and not is_rmg and not self.is_gui_process(pid):
                         continue
 
                     display_name: str = name if name else exec_base
@@ -186,7 +265,7 @@ class LinuxGameShuffler(QMainWindow):
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
 
-        return processes
+        return self.collapse_helper_processes(processes)
 
     def refresh_process_list(self) -> None:
         if self.is_running:
@@ -236,7 +315,66 @@ class LinuxGameShuffler(QMainWindow):
                         item.setForeground(default_fg)
                         item.setFont(normal_font)
 
+    def process_tree(self, pid: int) -> List[psutil.Process]:
+        """Return the process and its descendants, parent first.
+
+        The selected PID is often a Flatpak wrapper (bwrap -> Cemu-wrapper -> cemu),
+        so the emulator itself is a descendant rather than the PID we hold.
+        """
+        try:
+            proc: psutil.Process = psutil.Process(pid)
+        except psutil.Error:
+            return []
+
+        try:
+            return [proc] + proc.children(recursive=True)
+        except psutil.Error:
+            return [proc]
+
+    def suspend_others(self, active_pid: int) -> None:
+        """Freeze every rotation target except the active one."""
+        if not self.is_running or active_pid != self.current_pid:
+            return
+
+        # Never freeze a PID that also belongs to the active target's tree.
+        keep: Set[int] = {proc.pid for proc in self.process_tree(active_pid)}
+
+        for pid in self.selected_pids:
+            if pid == active_pid:
+                continue
+            # Parent first, so a wrapper cannot spawn children we would miss.
+            for proc in self.process_tree(pid):
+                if proc.pid in keep:
+                    continue
+                try:
+                    proc.suspend()
+                    self.suspended_pids.add(proc.pid)
+                except psutil.Error:
+                    continue
+
+    def resume_tree(self, pid: int) -> None:
+        """Thaw a target, children first so the parent sees them running."""
+        for proc in reversed(self.process_tree(pid)):
+            try:
+                proc.resume()
+            except psutil.Error:
+                pass
+            self.suspended_pids.discard(proc.pid)
+
+    def resume_all(self) -> None:
+        """Thaw everything we froze. Must run on every exit path, or an emulator
+        is left suspended and indistinguishable from a hung process."""
+        for pid in list(self.suspended_pids):
+            try:
+                psutil.Process(pid).resume()
+            except psutil.Error:
+                pass
+            self.suspended_pids.discard(pid)
+
     def focus_and_minimize_others(self, pid: int) -> None:
+        # Thaw before focusing, so the compositor never pings a frozen window.
+        self.resume_tree(pid)
+
         try:
             # Check if current target process is RMG
             proc = psutil.Process(pid)
@@ -302,6 +440,9 @@ class LinuxGameShuffler(QMainWindow):
         except Exception:
             pass
 
+        # Deferred so the minimize lands before the process stops responding.
+        QTimer.singleShot(self.suspend_delay_ms, lambda: self.suspend_others(pid))
+
     def toggle_shuffler(self) -> None:
         if not self.is_running:
             selected_rows: List[Any] = self.table.selectionModel().selectedRows()
@@ -331,6 +472,7 @@ class LinuxGameShuffler(QMainWindow):
         self.shuffle_timer.stop()
         self.is_running = False
 
+        self.resume_all()
         self.selected_pids.clear()
         self.current_pid = None
         self.start_btn.setText("Start Shuffler")
@@ -366,8 +508,10 @@ class LinuxGameShuffler(QMainWindow):
             return
 
         if self.current_pid in self.selected_pids:
-            self.selected_pids.remove(self.current_pid)
+            removed_pid: int = self.current_pid
+            self.selected_pids.remove(removed_pid)
             self.current_pid = None
+            self.resume_tree(removed_pid)
             
             self.shuffle_timer.stop()
             self.update_table_highlights()
@@ -391,6 +535,7 @@ class LinuxGameShuffler(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         if self.is_running:
             self.stop_shuffler()
+        self.resume_all()
         if self.hotkey_listener:
             self.hotkey_listener.stop()
         event.accept()
