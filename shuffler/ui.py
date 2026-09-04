@@ -38,10 +38,6 @@ DEFAULT_MIN_SECONDS = 2
 DEFAULT_MAX_SECONDS = 20
 INTERVAL_RANGE = (1, 3600)
 
-# Give the compositor time to minimize a window before its process stops
-# responding, so it is not mistaken for a hung application.
-SUSPEND_DELAY_MS = 250
-
 # Key repeat would otherwise empty the whole pool on a single held keypress.
 REMOVE_DEBOUNCE_SECONDS = 0.8
 
@@ -274,19 +270,14 @@ class ShufflerWindow(QMainWindow):
         self.shuffle_timer.start(delay_seconds * 1000)
 
     def focus_target(self, pid: int) -> None:
-        """Bring one emulator to the front and freeze the rest."""
-        # Thaw before focusing, so the compositor never pings a frozen window.
-        self.suspender.resume_tree(pid)
+        """Bring one emulator to the front and freeze the rest.
+
+        Nothing here is deferred. The freeze used to wait for a minimize
+        animation to finish, and that wait was time the outgoing game kept
+        playing unattended -- a quarter of a second, enough to lose a race.
+        """
+        self.suspender.switch_to(self.selected_pids, pid)
         self.window_manager.focus(pid)
-
-        # Deferred so the minimize lands before the process stops responding.
-        QTimer.singleShot(SUSPEND_DELAY_MS, lambda: self.suspend_background(pid))
-
-    def suspend_background(self, pid: int) -> None:
-        # The rotation may have moved on while this callback was pending.
-        if not self.is_running or pid != self.current_pid:
-            return
-        self.suspender.suspend_all_except(self.selected_pids, pid)
 
     # ---------------------------------------------------------------- hotkey
 
