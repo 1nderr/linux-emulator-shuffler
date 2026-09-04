@@ -12,9 +12,9 @@ A PySide6 GUI utility for Linux (KDE Wayland & X11) designed to randomly shuffle
 - **Background Freeze (SIGSTOP):** Unfocused emulators are suspended, not just minimized, so games keep their state instead of playing on in the background. This covers emulators with no "pause when unfocused" option of their own, such as Cemu, and works through Flatpak wrapper trees (`bwrap` -> `Cemu-wrapper` -> `cemu`). Every exit path thaws what it froze.
 - **Window-Aware Filtering:** Detects running emulators while automatically filtering out generic shell wrappers (`bash`), sandboxes (`bwrap`), and launcher scripts. Emulators are identified by process name and binary rather than by their full command line, so a process that merely mentions an emulator in an argument (a KDE `kioworker` carrying the requesting app's socket name, or a ROM path) is not mistaken for one. Detection does not rely on `wmctrl` alone, which reports only X11/Xwayland windows: a process is also recognized as an emulator if it links a display-client library, which is what makes native Wayland clients such as Flatpak Cemu visible.
 - **Specialized Emulator Handling:** Includes fallback title/class matching for emulators like Rosalie's Mupen GUI (RMG) that spawn isolated process trees or report PID 0 under Xwayland/KWin.
-- **Global Hotkeys:** Press `Delete` anywhere to instantly drop the active emulator process from rotation and switch targets immediately.
+- **Global Hotkeys:** Press `Delete` anywhere to drop the active emulator from the rotation and switch targets immediately. The dropped game stays frozen, so a finished run cannot keep playing in the background, and its row turns yellow. Stopping the shuffler thaws everything that was dropped.
 - **Debounce Lock Protection:** Built-in key-repeat debounce protection prevents rapid signal spam from clearing your active pool on a single keypress.
-- **Theme-Aware UI Highlighting:** Dynamically highlights active rotation targets in soft green (`#d4edda`) while maintaining contrast and readability across both light and dark desktop themes.
+- **Theme-Aware UI Highlighting:** Highlights active rotation targets in soft green (`#d4edda`) and games dropped with `Delete` in soft yellow (`#fff3cd`), maintaining contrast and readability across both light and dark desktop themes.
 
 ## Supported Emulators
 
@@ -145,8 +145,8 @@ sudo apt install wmctrl
 
 | Control                   | Action                                                                                                                   |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| **Start / Stop Shuffler** | Toggles the automatic timer and locks/unlocks process selection.                                                         |
-| **Delete Key (Global)**   | Immediately removes the active emulator process from rotation and jumps to the next target without stopping the session. |
+| **Start / Stop Shuffler** | Toggles the automatic timer and locks/unlocks process selection. Stopping thaws every frozen emulator, including any dropped with `Delete`. |
+| **Delete Key (Global)**   | Removes the active emulator from the rotation and jumps to the next target without stopping the session. The dropped emulator is left frozen and its row turns yellow; it thaws when the shuffler is stopped. |
 
 ## Troubleshooting
 

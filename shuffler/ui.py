@@ -51,6 +51,10 @@ PID_COLUMN = 0
 HIGHLIGHT_BACKGROUND = "#d4edda"
 HIGHLIGHT_FOREGROUND = "#155724"
 
+# Dropped with [Delete]: still frozen, but no longer shuffled to.
+REMOVED_BACKGROUND = "#fff3cd"
+REMOVED_FOREGROUND = "#856404"
+
 
 class HotkeyEmitter(QObject):
     """Bridges pynput's listener thread onto the Qt event loop."""
@@ -65,6 +69,9 @@ class ShufflerWindow(QMainWindow):
         self.resize(*WINDOW_SIZE)
 
         self.selected_pids: list[int] = []
+        # Dropped from the rotation with [Delete] and left frozen until the
+        # session stops, so a game cannot advance after you walk away from it.
+        self.removed_pids: list[int] = []
         self.current_pid: int | None = None
         self.is_running = False
         self.last_remove_time = 0.0
@@ -181,25 +188,29 @@ class ShufflerWindow(QMainWindow):
         normal_font = QFont()
         normal_font.setBold(False)
 
+        removed_bg = QColor(REMOVED_BACKGROUND)
+        removed_fg = QColor(REMOVED_FOREGROUND)
+
         for row in range(self.table.rowCount()):
             pid_item = self.table.item(row, PID_COLUMN)
             if not pid_item:
                 continue
 
-            in_rotation = int(pid_item.text()) in self.selected_pids
+            pid = int(pid_item.text())
+            if pid in self.selected_pids:
+                background, foreground, font = highlight_bg, highlight_fg, bold_font
+            elif pid in self.removed_pids:
+                background, foreground, font = removed_bg, removed_fg, bold_font
+            else:
+                background, foreground, font = QColor(0, 0, 0, 0), default_fg, normal_font
 
             for col in range(self.table.columnCount()):
                 item = self.table.item(row, col)
                 if not item:
                     continue
-                if in_rotation:
-                    item.setBackground(highlight_bg)
-                    item.setForeground(highlight_fg)
-                    item.setFont(bold_font)
-                else:
-                    item.setBackground(QColor(0, 0, 0, 0))
-                    item.setForeground(default_fg)
-                    item.setFont(normal_font)
+                item.setBackground(background)
+                item.setForeground(foreground)
+                item.setFont(font)
 
     # -------------------------------------------------------------- rotation
 
@@ -237,8 +248,10 @@ class ShufflerWindow(QMainWindow):
         self.shuffle_timer.stop()
         self.is_running = False
 
+        # Thaws the rotation and everything dropped with [Delete].
         self.suspender.resume_all()
         self.selected_pids.clear()
+        self.removed_pids.clear()
         self.current_pid = None
 
         self.start_btn.setText("Start Shuffler")
@@ -290,8 +303,13 @@ class ShufflerWindow(QMainWindow):
 
         removed_pid = self.current_pid
         self.selected_pids.remove(removed_pid)
+        self.removed_pids.append(removed_pid)
         self.current_pid = None
-        self.suspender.resume_tree(removed_pid)
+
+        # Freeze it where it stands rather than thawing it: the game is out of
+        # the rotation, so it must not keep running in the background. It stays
+        # frozen until the session stops, which thaws everything.
+        self.suspender.suspend_tree(removed_pid)
 
         self.shuffle_timer.stop()
         self.update_table_highlights()

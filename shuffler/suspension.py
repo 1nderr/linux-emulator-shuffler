@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from collections.abc import Iterable
+from collections.abc import Container, Iterable
 
 import psutil
 
@@ -43,24 +43,27 @@ class ProcessSuspender:
         except psutil.Error:
             return [proc]
 
+    def suspend_tree(self, pid: int, keep: Container[int] = frozenset()) -> None:
+        """Freeze one process tree, skipping any PID in `keep`."""
+        # Parent first, so a wrapper cannot spawn children that are missed.
+        for proc in self.process_tree(pid):
+            if proc.pid in keep:
+                continue
+            try:
+                proc.suspend()
+            except psutil.Error as exc:
+                log.debug("could not suspend %s: %s", proc.pid, exc)
+                continue
+            self.suspended_pids.add(proc.pid)
+
     def suspend_all_except(self, pids: Iterable[int], active_pid: int) -> None:
         """Freeze every tree in `pids` other than the active target's."""
         # Never freeze a PID that also belongs to the active target's tree.
         keep = {proc.pid for proc in self.process_tree(active_pid)}
 
         for pid in pids:
-            if pid == active_pid:
-                continue
-            # Parent first, so a wrapper cannot spawn children that are missed.
-            for proc in self.process_tree(pid):
-                if proc.pid in keep:
-                    continue
-                try:
-                    proc.suspend()
-                except psutil.Error as exc:
-                    log.debug("could not suspend %s: %s", proc.pid, exc)
-                    continue
-                self.suspended_pids.add(proc.pid)
+            if pid != active_pid:
+                self.suspend_tree(pid, keep)
 
     def resume_tree(self, pid: int) -> None:
         """Thaw one target, children first so the parent sees them running."""
