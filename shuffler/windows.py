@@ -25,9 +25,7 @@ SUPPORTED_BACKENDS = frozenset({X11, KDE_WAYLAND})
 
 _KWIN_SCRIPT = """
 var targetPid = {pid};
-var otherPids = {other_pids};
 var isRmg = {is_rmg};
-var hideOthers = {hide_others};
 var windows = workspace.windowList();
 
 for (var i = 0; i < windows.length; i++) {{
@@ -48,21 +46,6 @@ for (var i = 0; i < windows.length; i++) {{
             workspace.raiseWindow(w);
         }}
         workspace.activeWindow = w;
-    }} else if (hideOthers && otherPids.indexOf(w.pid) !== -1) {{
-        w.minimized = true;
-    }}
-}}
-"""
-
-
-_KWIN_RESTORE_SCRIPT = """
-var pids = {pids};
-var windows = workspace.windowList();
-
-for (var i = 0; i < windows.length; i++) {{
-    var w = windows[i];
-    if (w.minimized && pids.indexOf(w.pid) !== -1) {{
-        w.minimized = false;
     }}
 }}
 """
@@ -85,12 +68,8 @@ def detect_backend() -> str:
 class WindowManager:
     """Raises the active emulator's window and hides the rest."""
 
-    def __init__(self, backend: str, hide_inactive: bool = False) -> None:
+    def __init__(self, backend: str) -> None:
         self.backend = backend
-        # Raising the target covers the others without a state change, so nothing
-        # animates. Minimizing is only needed when the windows are not the same
-        # size and the ones behind would otherwise show around the edges.
-        self.hide_inactive = hide_inactive
         # A private, per-process path: the KWin script is rewritten on every
         # shuffle, and a predictable shared /tmp name would be writable by others.
         runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
@@ -100,46 +79,17 @@ class WindowManager:
     def can_focus(self) -> bool:
         return self.backend in SUPPORTED_BACKENDS
 
-    def focus(self, pid: int, other_pids: list[int]) -> None:
-        """Raise `pid`'s window and hide the windows of `other_pids`."""
-        if self.backend == X11:
-            self._focus_x11(pid, other_pids)
-        elif self.backend == KDE_WAYLAND:
-            self._focus_kwin(pid, other_pids)
+    def focus(self, pid: int) -> None:
+        """Raise `pid`'s window above the others.
 
-    def restore(self, pids: list[int]) -> None:
-        """Unminimize the given windows.
-
-        Needed when leaving minimize mode: without it the windows minimized under
-        the old mode would stay hidden until each next became the active target.
+        Raising is a stacking change rather than a state change, so nothing
+        animates. The other emulators are left alone: their windows stay mapped
+        underneath, and their processes are frozen separately.
         """
-        if not pids:
-            return
-
         if self.backend == X11:
-            self._restore_x11(pids)
+            self._focus_x11(pid)
         elif self.backend == KDE_WAYLAND:
-            self._run_kwin_script(_KWIN_RESTORE_SCRIPT.format(pids=list(pids)))
-
-    def _restore_x11(self, pids: list[int]) -> None:
-        try:
-            output = subprocess.check_output(
-                ["wmctrl", "-lp"], stderr=subprocess.DEVNULL, text=True
-            )
-        except (OSError, subprocess.CalledProcessError) as exc:
-            log.warning("cannot list windows with wmctrl: %s", exc)
-            return
-
-        for line in output.splitlines():
-            parts = line.split()
-            if len(parts) < 3:
-                continue
-            try:
-                window_pid = int(parts[2])
-            except ValueError:
-                continue
-            if window_pid in pids:
-                self._run_wmctrl(["-i", "-r", parts[0], "-b", "remove,hidden"])
+            self._focus_kwin(pid)
 
     def cleanup(self) -> None:
         """Remove the KWin script file written for this process."""
@@ -162,7 +112,7 @@ class WindowManager:
 
         return is_rmg(identity, identity, identity)
 
-    def _focus_x11(self, pid: int, other_pids: list[int]) -> None:
+    def _focus_x11(self, pid: int) -> None:
         try:
             output = subprocess.check_output(
                 ["wmctrl", "-lp"], stderr=subprocess.DEVNULL, text=True
@@ -193,8 +143,6 @@ class WindowManager:
                 # Clear any minimized state left by a previous run before raising.
                 self._run_wmctrl(["-i", "-r", window_id, "-b", "remove,hidden"])
                 self._run_wmctrl(["-i", "-a", window_id])
-            elif self.hide_inactive and window_pid in other_pids:
-                self._run_wmctrl(["-i", "-r", window_id, "-b", "add,hidden"])
 
     def _run_wmctrl(self, args: list[str]) -> None:
         try:
@@ -207,12 +155,10 @@ class WindowManager:
         except OSError as exc:
             log.warning("wmctrl %s failed: %s", " ".join(args), exc)
 
-    def _focus_kwin(self, pid: int, other_pids: list[int]) -> None:
+    def _focus_kwin(self, pid: int) -> None:
         self._run_kwin_script(_KWIN_SCRIPT.format(
             pid=pid,
-            other_pids=list(other_pids),
             is_rmg=str(self._target_is_rmg(pid)).lower(),
-            hide_others=str(self.hide_inactive).lower(),
         ))
 
     def _run_kwin_script(self, script: str) -> None:
