@@ -21,6 +21,9 @@ share/python-wheels/
 .installed.cfg
 *.egg
 
+# PyInstaller
+*.spec
+
 # Virtual Environments
 venv/
 env/

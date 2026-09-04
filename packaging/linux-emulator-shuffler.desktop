@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Linux Emulator Shuffler
+GenericName=Emulator Shuffler
+Comment=Randomly shuffle focus between running emulators
+Exec=@EXEC@
+Icon=linux-emulator-shuffler
+Terminal=false
+Categories=Game;Emulator;
+Keywords=emulator;shuffler;shuffle;speedrun;randomizer;retro;rotation;games;
+StartupNotify=true
+StartupWMClass=linux-emulator-shuffler

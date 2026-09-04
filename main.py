@@ -16,6 +16,11 @@ def main() -> int:
     )
 
     app = QApplication(sys.argv)
+    app.setApplicationName("Linux Emulator Shuffler")
+    # Lets the compositor match the window to the installed .desktop entry, so
+    # the taskbar and alt-tab show the app's icon and name rather than a default.
+    app.setDesktopFileName("linux-emulator-shuffler")
+
     window = ShufflerWindow()
     window.show()
     return app.exec()

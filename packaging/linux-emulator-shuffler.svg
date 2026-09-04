@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3d6fd8"/>
+      <stop offset="1" stop-color="#23408a"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#bg)"/>
+
+  <!-- Two crossing paths with arrowheads: the shuffle motif.
+       Shifted up 6 units: the arrowheads extend further below the curves than
+       above them, so the drawn shape is centred while the coordinates are not. -->
+  <g transform="translate(0, -6)">
+  <g fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round">
+    <path d="M30 44 H48 Q64 44 74 84 Q80 96 94 96"/>
+    <path d="M30 96 H48 Q64 96 74 56 Q80 44 94 44"/>
+  </g>
+  <g fill="#ffffff">
+    <path d="M88 34 L106 44 L88 54 Z"/>
+    <path d="M88 86 L106 96 L88 106 Z"/>
+  </g>
+  </g>
+</svg>

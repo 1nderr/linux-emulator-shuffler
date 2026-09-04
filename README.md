@@ -28,6 +28,53 @@ The shuffler automatically scans for common retro and modern emulators, AppImage
 | Game Boy / GBA / DS / 3DS          | `mgba`, `vbam`, `melonds`, `desmume`, `citra`, `azahar`           |
 | Multi-System / Frontends           | `retroarch`, `bizhawk`, `pico8`, `flycast`, `blastem`             |
 
+## Building a Binary
+
+To get a standalone executable and an entry in your application launcher:
+
+```bash
+./build.sh      # bundle into dist/ with PyInstaller
+./install.sh    # install the binary, desktop entry, and icon for your user
+```
+
+`install.sh` builds first if needed, so running it alone is enough. Afterwards the
+app appears in your launcher and in search (KRunner, GNOME Activities, rofi) as
+**Linux Emulator Shuffler**. Remove it again with `./uninstall.sh`.
+
+| Command                | Result                                                                        |
+| ---------------------- | ----------------------------------------------------------------------------- |
+| `./build.sh`           | `dist/linux-emulator-shuffler/` -- a directory bundle, starts fast (~200 MB)  |
+| `./build.sh --onefile` | `dist/linux-emulator-shuffler` -- one file, slower to start (unpacks per run) |
+| `./install.sh`         | Installs whichever build is present                                           |
+| `./install.sh --rebuild` | Discards the old build and builds fresh                                     |
+
+Installed locations, all under your home directory:
+
+```
+~/.local/share/linux-emulator-shuffler/           the bundle
+~/.local/bin/linux-emulator-shuffler              launcher on PATH
+~/.local/share/applications/…​.desktop             menu and search entry
+~/.local/share/icons/hicolor/scalable/apps/…​.svg  icon
+```
+
+The bundle contains Python, Qt, psutil, and pynput, but **not** `wmctrl` or
+`dbus-send` -- those stay system dependencies (see Prerequisites).
+
+### If the binary fails to start
+
+Some Python builds -- typically `mise` and `pyenv` interpreters compiled without
+`-z noexecstack` -- produce a `libpython` marked as requiring an executable
+stack, which hardened kernels refuse to load:
+
+```
+Failed to load Python shared library … cannot enable executable stack
+as shared object requires: Invalid argument
+```
+
+`build.sh` clears that flag automatically via `packaging/fix_execstack.py`
+(equivalent to `execstack -c`, but with no extra tooling needed). If you build by
+hand, run `python packaging/fix_execstack.py dist` afterwards.
+
 ## Project Structure
 
 ```
@@ -37,6 +84,10 @@ shuffler/
   windows.py            Backend detection and window focusing (wmctrl / KWin)
   suspension.py         Freezing and thawing emulator process trees
   ui.py                 The shuffler window, table, and global hotkey
+build.sh                Bundle into a binary with PyInstaller
+install.sh              Install binary + desktop entry + icon for the user
+uninstall.sh            Remove everything install.sh created
+packaging/              Desktop entry, icon, and the execstack fixup
 ```
 
 `detection.py` and `suspension.py` have no Qt dependency and can be exercised on
