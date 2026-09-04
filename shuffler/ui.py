@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QCloseEvent, QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -98,6 +99,17 @@ class ShufflerWindow(QMainWindow):
         self.min_spin = self._interval_spin(DEFAULT_MIN_SECONDS)
         self.max_spin = self._interval_spin(DEFAULT_MAX_SECONDS)
 
+        # Off by default: raising the target switches instantly, while minimizing
+        # plays the desktop's minimize animation on every shuffle.
+        self.hide_inactive_check = QCheckBox("Minimize inactive windows")
+        self.hide_inactive_check.setToolTip(
+            "Off: the next emulator is raised over the others, with no animation.\n"
+            "On: the others are minimized, which is slower but guarantees they are\n"
+            "hidden when the windows are not the same size."
+        )
+        self.hide_inactive_check.setChecked(self.window_manager.hide_inactive)
+        self.hide_inactive_check.toggled.connect(self.set_hide_inactive)
+
         self.refresh_btn = QPushButton("Refresh Emulator List")
         self.refresh_btn.clicked.connect(self.refresh_process_list)
 
@@ -105,6 +117,7 @@ class ShufflerWindow(QMainWindow):
         control_layout.addWidget(self.min_spin)
         control_layout.addWidget(QLabel("Max Sec:"))
         control_layout.addWidget(self.max_spin)
+        control_layout.addWidget(self.hide_inactive_check)
         control_layout.addStretch()
         control_layout.addWidget(self.refresh_btn)
 
@@ -137,6 +150,19 @@ class ShufflerWindow(QMainWindow):
                 "no window-focusing support for backend %r; the rotation will run "
                 "but windows will not be raised", self.backend
             )
+
+    def set_hide_inactive(self, hide: bool) -> None:
+        """Switch between raising the target and minimizing everything else."""
+        self.window_manager.hide_inactive = hide
+
+        # Leaving the mode would otherwise strand windows in their minimized state.
+        if not hide and self.is_running:
+            self.window_manager.restore(self.selected_pids)
+            if self.current_pid is not None:
+                self.window_manager.focus(
+                    self.current_pid,
+                    [p for p in self.selected_pids if p != self.current_pid],
+                )
 
     def _interval_spin(self, value: int) -> QSpinBox:
         spin = QSpinBox()

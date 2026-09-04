@@ -8,6 +8,7 @@ A PySide6 GUI utility for Linux (KDE Wayland & X11) designed to randomly shuffle
 ## Key Features
 
 - **Multi-Backend Support:** Native window management handling via `wmctrl` (X11 / Xwayland) and KWin DBus scripting (KDE Wayland).
+- **Seamless Switching:** The next emulator is raised over the others rather than the others being minimized, so nothing animates between games. Minimizing remains available as a checkbox for setups where the windows are different sizes and the ones behind would otherwise be visible around the edges.
 - **Background Freeze (SIGSTOP):** Unfocused emulators are suspended, not just minimized, so games keep their state instead of playing on in the background. This covers emulators with no "pause when unfocused" option of their own, such as Cemu, and works through Flatpak wrapper trees (`bwrap` -> `Cemu-wrapper` -> `cemu`). Every exit path thaws what it froze.
 - **Window-Aware Filtering:** Detects running emulators while automatically filtering out generic shell wrappers (`bash`), sandboxes (`bwrap`), and launcher scripts. Emulators are identified by process name and binary rather than by their full command line, so a process that merely mentions an emulator in an argument (a KDE `kioworker` carrying the requesting app's socket name, or a ROM path) is not mistaken for one. Detection does not rely on `wmctrl` alone, which reports only X11/Xwayland windows: a process is also recognized as an emulator if it links a display-client library, which is what makes native Wayland clients such as Flatpak Cemu visible.
 - **Specialized Emulator Handling:** Includes fallback title/class matching for emulators like Rosalie's Mupen GUI (RMG) that spawn isolated process trees or report PID 0 under Xwayland/KWin.
@@ -94,10 +95,13 @@ sudo apt install wmctrl
 | Control                   | Action                                                                                                                   |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | **Start / Stop Shuffler** | Toggles the automatic timer and locks/unlocks process selection.                                                         |
+| **Minimize inactive windows** | Off by default. Off raises the active emulator over the others with no animation; on minimizes the rest, which guarantees they are hidden but plays the desktop's minimize animation on every shuffle. Turning it back off restores anything left minimized. |
 | **Delete Key (Global)**   | Immediately removes the active emulator process from rotation and jumps to the next target without stopping the session. |
 
 ## Troubleshooting
 
+- **Windows still animate when switching:** Make sure **Minimize inactive windows** is unchecked. If you need minimizing and want it instant anyway, disable the minimize effect itself in *System Settings -> Desktop Effects* (the "Squash" or "Magic Lamp" effect under Appearance).
+- **Other emulators visible around the edges of the active one:** Their windows are behind rather than minimized. Either size the emulator windows the same (or run them fullscreen), or enable **Minimize inactive windows**.
 - **Brief audio buzz when a game is shuffled away:** Suspending a process can leave the last audio buffer looping for a few milliseconds before PipeWire drains it. This is cosmetic and does not affect emulation state.
 - **An emulator looks hung after a crash:** If the shuffler is killed with `SIGKILL` it cannot thaw its targets. Run `kill -CONT <pid>` to resume one by hand. Normal exits, including closing the window and stopping the shuffler, always resume every process.
 - **An unrelated process appears in the list:** Matching is on the process's own name and binary, with its arguments consulted only for interpreters (`mono`, `python`, shells) that are named after themselves rather than after what they run. If something unrelated still appears, add its binary name to `excluded_binaries`, which matches exactly. KDE's `dolphin` file manager is excluded there by default so it is not confused with the Dolphin emulator (`dolphin-emu`).
