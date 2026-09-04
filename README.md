@@ -27,6 +27,20 @@ The shuffler automatically scans for common retro and modern emulators, AppImage
 | Game Boy / GBA / DS / 3DS          | `mgba`, `vbam`, `melonds`, `desmume`, `citra`, `azahar`           |
 | Multi-System / Frontends           | `retroarch`, `bizhawk`, `pico8`, `flycast`, `blastem`             |
 
+## Project Structure
+
+```
+main.py                 Entry point: logging setup and the Qt application
+shuffler/
+  detection.py          Finding emulator processes that own a window
+  windows.py            Backend detection and window focusing (wmctrl / KWin)
+  suspension.py         Freezing and thawing emulator process trees
+  ui.py                 The shuffler window, table, and global hotkey
+```
+
+`detection.py` and `suspension.py` have no Qt dependency and can be exercised on
+their own. Set `SHUFFLER_DEBUG=1` to raise the log level from warnings to debug.
+
 ## Prerequisites
 
 ### System Dependencies
