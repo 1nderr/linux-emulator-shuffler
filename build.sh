@@ -11,21 +11,11 @@ APP_NAME="linux-emulator-shuffler"
 MODE="onedir"
 [[ "${1:-}" == "--onefile" ]] && MODE="onefile"
 
-# The venv's console scripts hard-code the path they were created with, so call
-# the interpreter directly and use "python -m" for everything.
-if [[ -x venv/bin/python ]]; then
-    PYTHON="venv/bin/python"
-else
-    PYTHON="${PYTHON:-python3}"
-fi
+# PyInstaller is in the dev dependency group, which uv syncs by default.
+uv sync --locked
 
-if ! "$PYTHON" -c "import PyInstaller" >/dev/null 2>&1; then
-    echo "Installing PyInstaller into $PYTHON ..."
-    "$PYTHON" -m pip install --quiet pyinstaller
-fi
-
-echo "Building $APP_NAME ($MODE) with $PYTHON ..."
-"$PYTHON" -m PyInstaller \
+echo "Building $APP_NAME ($MODE) ..."
+uv run --locked python -m PyInstaller \
     --noconfirm --clean \
     --name "$APP_NAME" \
     --"$MODE" \
@@ -46,7 +36,7 @@ echo "Building $APP_NAME ($MODE) with $PYTHON ..."
 # PyInstaller just made, or the bundle dies at startup.
 echo
 echo "Checking bundled objects for executable-stack markers ..."
-"$PYTHON" packaging/fix_execstack.py dist
+uv run --locked python packaging/fix_execstack.py dist
 
 if [[ "$MODE" == "onefile" ]]; then
     BINARY="dist/$APP_NAME"

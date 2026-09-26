@@ -74,7 +74,7 @@ as shared object requires: Invalid argument
 
 `build.sh` clears that flag automatically via `packaging/fix_execstack.py`
 (equivalent to `execstack -c`, but with no extra tooling needed). If you build by
-hand, run `python packaging/fix_execstack.py dist` afterwards.
+hand, run `uv run packaging/fix_execstack.py dist` afterwards.
 
 ## Project Structure
 
@@ -86,6 +86,7 @@ shuffler/
   suspension.py         Freezing and thawing emulator process trees
   ui.py                 The shuffler window, table, and global hotkey
 build.sh                Bundle into a binary with PyInstaller
+pyproject.toml          Dependencies, with PyInstaller in the dev group
 install.sh              Install binary + desktop entry + icon for the user
 uninstall.sh            Remove everything install.sh created
 packaging/              Desktop entry, icon, and the execstack fixup
@@ -98,7 +99,8 @@ their own. Set `SHUFFLER_DEBUG=1` to raise the log level from warnings to debug.
 
 ### System Dependencies
 
-- **Python:** 3.10 or higher
+- **Python:** 3.10 or higher (uv installs it if you do not have it)
+- **[uv](https://docs.astral.sh/uv/):** manages the virtual environment and Python dependencies
 - **X11 / Xwayland Utility:** `wmctrl` (required for X11/Xwayland window focusing and visibility toggles)
 
 On Fedora / RHEL:
@@ -120,14 +122,9 @@ sudo apt install wmctrl
    git clone https://github.com/your-username/linux-emulator-shuffler.git
    cd linux-emulator-shuffler
    ```
-2. Create and activate a virtual environment:
+2. Install the Python dependencies into a virtual environment:
    ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-3. Install Python dependencies:
-   ```bash
-   pip install PySide6 psutil pynput
+   uv sync
    ```
 
 ## Usage
@@ -135,7 +132,7 @@ sudo apt install wmctrl
 1. Launch your desired emulators and load your game states.
 2. Launch the application:
    ```bash
-   python main.py
+   uv run main.py
    ```
 3. Click **Refresh Emulator List** if emulators were opened after starting the shuffler.
 4. Highlight and select the active emulator processes in the table.

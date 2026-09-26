@@ -1,3 +1,0 @@
-# Extra tooling for building a distributable binary (./build.sh installs it
-# automatically if missing).
-pyinstaller>=6.10.0
